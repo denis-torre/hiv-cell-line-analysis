@@ -1,0 +1,135 @@
+---
+title: "Exploratory Data Analysis of HIV infection dataset"
+author: "Denis Torre"
+date: "January 24th, 2017"
+output: pdf_document
+---
+
+``` {r, echo=FALSE}
+# Load libraries
+source('/Users/denis/Documents/Projects/scripts/Support.R')
+
+# Get input files
+infiles <- c('/Users/denis/Documents/Projects/hiv-analysis/hiv-signature-analysis/f2-normalized_expression_data.dir/podocyte_cell_line-vst.txt',
+             '/Users/denis/Documents/Projects/hiv-analysis/hiv-signature-analysis/f2-normalized_expression_data.dir/primary_podocyte-vst.txt',
+             '/Users/denis/Documents/Projects/hiv-analysis/hiv-signature-analysis/rawdata/hiv_sample_annotation.txt')
+
+# Get dataframes
+cellLineExpressionData <- read.table(infiles[1], header=TRUE, row.names='gene_symbol')
+primaryExpressionData <- read.table(infiles[2], header=TRUE, row.names='gene_symbol')
+sampleAnnotationDataframe <- read.table(infiles[3], header=TRUE, row.names='sample_name')
+
+# Get annotation data
+cellLineAnnotationDataframe <- sampleAnnotationDataframe[sampleAnnotationDataframe$cell_type == 'cell_line', c('cell_type','treatment','timepoint','batch')]
+primaryAnnotationDataframe <- sampleAnnotationDataframe[sampleAnnotationDataframe$cell_type == 'primary_podocyte', c('cell_type','treatment','patient_group','patient')]
+```
+
+# Overview
+## Aim
+The aim of this report is to perform Exploratory Data Analysis (EDA) on a HIV infection dataset provided by Dr. Weijia Zhang.
+
+## Data
+The data was obtained by performing RNA-sequencing on 34 biological samples of podocytes under three experimental conditions: HIV infection, control GFP infection, and untreated.  Raw readcounts were normalized using Variance Stabilizing Transform (VST) from the DESeq2 package.
+
+\ 
+
+The samples can be divided in two groups:
+
+  1. *13 samples* from **patient-derived cell-lines**, divided in three batches.  3 samples are untreated, the other 10 are infected with HIV at different timepoints (6h, 125, 24h, 48h).
+  2. *21 samples* from **patient-derived primary podocytes**, collected from 10 different patients.  The samples are divided in HIV infection, control GFP infection and control.
+  
+\newpage
+
+# PCA Analysis
+## Rationale
+A PCA analysis was performed to visualize the data, assess the separation of samples from different experimental conditions, and assess presence of batch effects.
+
+## Cell-line Data
+The following PCA displays the 13 samples from patient-derived cell lines, colored by batch.  The plot reveals a very significant batch effect, which could be a potential confounding factor for further analyses.
+
+\ 
+
+``` {r, echo=FALSE, fig.height=5, fig.width=5, fig.align='center', dev.args=list(pointsize=10)}
+# Run PCA
+pcaRes <- runPCA(cellLineExpressionData)
+
+# Get plot matrix
+plotMatrix <- pcaRes$x
+
+# Get color legend
+colorLegend <- getLegend(rownames(cellLineAnnotationDataframe), cellLineAnnotationDataframe$batch, colors=c('red','blue','black','grey'))
+
+# PCs
+PCs <- c('PC1', 'PC2')
+
+# Plot
+plot(plotMatrix[,PCs],
+     col=colorLegend$colors,
+     xlab=pcaRes$varLabels[PCs[1]],
+     ylab=pcaRes$varLabels[PCs[2]])
+
+# Legend
+legend('topright', legend=names(colorLegend$legend), fill=colorLegend$legend, title='Batch')
+```
+
+\newpage
+
+## Primary Podocyte Data
+
+The following PCA displays the 21 samples from patient-derived primary podocytes, colored by patient.  The two samples from patient(s) NK are outliers.
+
+\
+
+``` {r, echo=FALSE, fig.height=4, fig.width=4, fig.align='center', dev.args=list(pointsize=10)}
+# Run PCA
+pcaRes <- runPCA(primaryExpressionData)
+
+# Get plot matrix
+plotMatrix <- pcaRes$x
+
+# Get color legend
+colorLegend <- getLegend(rownames(primaryAnnotationDataframe),
+                         primaryAnnotationDataframe$patient_group,
+                         colors=c('red','blue','black','grey'))
+
+# PCs
+PCs <- c('PC1', 'PC2')
+
+# Plot
+plot(plotMatrix[,PCs],
+     col=colorLegend$colors,
+     xlab=pcaRes$varLabels[PCs[1]],
+     ylab=pcaRes$varLabels[PCs[2]])
+
+# Legend
+legend('topright', legend=names(colorLegend$legend), fill=colorLegend$legend, title='Patient')
+```
+
+To better visualize the separation between samples form B patient(s), the PCA was repeated after removing the two samples coming from NK patient(s).  The following plot displays the results of the new analysis, colored by experimental condition.
+
+``` {r, echo=FALSE, fig.height=4, fig.width=4, fig.align='center', dev.args=list(pointsize=9)}
+# Run PCA
+pcaRes <- runPCA(primaryExpressionData[,grepl('B', colnames(primaryExpressionData))])
+
+# Get plot matrix
+plotMatrix <- pcaRes$x
+
+# Get color legend
+colorLegend <- getLegend(rownames(primaryAnnotationDataframe),
+                         primaryAnnotationDataframe$treatment,
+                         colors=c('red','blue','black','grey'))
+
+# PCs
+PCs <- c('PC1', 'PC2')
+
+# Plot
+plot(plotMatrix[,PCs],
+     col=colorLegend$colors,
+     xlab=pcaRes$varLabels[PCs[1]],
+     ylab=pcaRes$varLabels[PCs[2]])
+
+# Legend
+legend('topright', legend=names(colorLegend$legend), fill=colorLegend$legend, title='Treatment')
+```
+
+The analysis shows that the samples don't clearly separate by experimental condition, potentially indicating the presence of additional unaccounted confounding factors.
