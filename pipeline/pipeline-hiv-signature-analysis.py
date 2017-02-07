@@ -188,6 +188,39 @@ def removeBatchEffects(infile, outfile):
 	# Run function
 	r.remove_batch_effects(com.convert_to_r_dataframe(vstDataframe), com.convert_to_r_dataframe(annotationDataframe), outfile)
 
+#######################################################
+#######################################################
+########## S4. Differential Expression
+#######################################################
+#######################################################
+
+#############################################
+########## 1. Characteristic Direction
+#############################################
+
+@follows(mkdir('f4-differential_expression.dir'))
+
+@transform(['f2-normalized_expression_data.dir/podocyte_cell_line-vst.txt',
+		    'f3-adjusted_expression_data.dir/podocyte_cell_line-vst_corrected.txt'],
+		    regex(r'.*/(.*).txt'),
+		    r'f4-differential_expression.dir/\1-differential_expression.txt')
+
+def runCharacteristicDirection(infile, outfile):
+
+	# Read infile
+	expressionDataframe = pd.read_table(infile).set_index('gene_symbol')
+
+	# Split column names
+	treatedColumnBool = [x.split('.')[0] != 'h0' for x in expressionDataframe.columns]
+	controlColumnBool = [not x for x in treatedColumnBool]
+
+	# Get treated dataframe
+	treatedExpressionDataframe = expressionDataframe.loc[:, treatedColumnBool]
+	controlExpressionDataframe = expressionDataframe.loc[:, controlColumnBool]
+
+	# Run function
+	r.run_characteristic_direction(com.convert_to_r_dataframe(treatedExpressionDataframe), com.convert_to_r_dataframe(controlExpressionDataframe), outfile)
+
 ##################################################
 ##################################################
 ########## Run pipeline

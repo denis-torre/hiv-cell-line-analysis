@@ -111,6 +111,44 @@ remove_batch_effects <- function(vstDataframe, annotationDataframe, outfile)
 	write.table(vstDataframeCorrected, file=outfile, sep='\t', quote=FALSE, row.names=FALSE)
 }
 
+#######################################################
+#######################################################
+########## S4. Differential Expression
+#######################################################
+#######################################################
+
+#############################################
+########## 1. Characteristic Direction
+#############################################
+
+run_characteristic_direction <- function(treatedExpressionDataframe, controlExpressionDataframe, outfile)
+{
+	# Read data
+	source('pipeline/scripts/support/nipals.R')
+	source('pipeline/scripts/support/chdir.R')
+
+	# Round dataframes
+	treatedExpressionDataframe <- round(treatedExpressionDataframe, digits=2)
+	controlExpressionDataframe <- round(controlExpressionDataframe, digits=2)
+
+	# Get gene variance
+	treatedGeneVar <- apply(treatedExpressionDataframe, 1, var)
+	controlGeneVar <- apply(controlExpressionDataframe, 1, var)
+
+	# Filter dataframes
+	treatedVariableGenes <- names(treatedGeneVar)[treatedGeneVar > 0]
+	controlVariableGenes <- names(controlGeneVar)[controlGeneVar > 0]
+	commonGenes <- intersect(treatedVariableGenes, controlVariableGenes)
+
+	# Run CD
+	unitV <- chdir(controlExpressionDataframe[commonGenes,], treatedExpressionDataframe[commonGenes,], commonGenes)
+
+	# Create dataframe
+	cdDataframe <- data.frame(gene_symbol=rownames(unitV), CD=unitV)
+
+	# Save file
+	write.table(cdDataframe, file=outfile, sep='\t', quote=FALSE, row.names=FALSE)
+}
 
 #######################################################
 #######################################################
