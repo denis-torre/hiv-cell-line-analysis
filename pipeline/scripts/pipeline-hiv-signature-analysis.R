@@ -92,8 +92,7 @@ runSizeFactorNormalization <- function(rawcountDataframe, outfile) {
 ########## 1. Remove batch effects
 #############################################
 
-remove_batch_effects <- function(vstDataframe, annotationDataframe, outfile)
-{
+remove_batch_effects <- function(vstDataframe, annotationDataframe, outfile) {
 	# Load libraries
 	library(sva)
 	
@@ -121,33 +120,41 @@ remove_batch_effects <- function(vstDataframe, annotationDataframe, outfile)
 ########## 1. Characteristic Direction
 #############################################
 
-run_characteristic_direction <- function(treatedExpressionDataframe, controlExpressionDataframe, outfile)
-{
+run_characteristic_direction <- function(expressionDataframe, outfile) {
+
 	# Read data
 	source('pipeline/scripts/support/nipals.R')
 	source('pipeline/scripts/support/chdir.R')
 
-	# Round dataframes
-	treatedExpressionDataframe <- round(treatedExpressionDataframe, digits=2)
-	controlExpressionDataframe <- round(controlExpressionDataframe, digits=2)
-
-	# Get gene variance
-	treatedGeneVar <- apply(treatedExpressionDataframe, 1, var)
-	controlGeneVar <- apply(controlExpressionDataframe, 1, var)
-
-	# Filter dataframes
-	treatedVariableGenes <- names(treatedGeneVar)[treatedGeneVar > 0]
-	controlVariableGenes <- names(controlGeneVar)[controlGeneVar > 0]
-	commonGenes <- intersect(treatedVariableGenes, controlVariableGenes)
-
+	# Get timepoints
+	timepoints <- unique(sapply(colnames(expressionDataframe), function(x) strsplit(x, '.', fixed=TRUE)[[1]][1]))
+	    
+	# Get column names grouped by timepoint
+	timepointColnames <- sapply(timepoints, function(x) colnames(expressionDataframe)[grepl(x, colnames(expressionDataframe))])
+	    
+	# Split and filter data
+	timepointData <- sapply(timepointColnames, function(x) {
+	    resultDataframe <- round(expressionDataframe[,x], digits=2);
+	    geneVar <- apply(resultDataframe, 1, var);
+	    resultDataframe <- resultDataframe[names(geneVar)[geneVar > 0],];
+	    return(resultDataframe);
+	}, simplify=FALSE)
+	    
+	# Get common genes
+	commonGenes <- Reduce(intersect, sapply(timepointData, function(x) rownames(x)))[1:500]
+	    
+	# Filter data
+	timepointData <- sapply(timepointData, function(x) x[commonGenes,])
+	    
 	# Run CD
-	unitV <- chdir(controlExpressionDataframe[commonGenes,], treatedExpressionDataframe[commonGenes,], commonGenes)
-
-	# Create dataframe
-	cdDataframe <- data.frame(gene_symbol=rownames(unitV), CD=unitV)
-
-	# Save file
-	write.table(cdDataframe, file=outfile, sep='\t', quote=FALSE, row.names=FALSE)
+	cdList <- sapply(timepoints[-1], function(x) chdir(timepointData[['h0']], timepointData[[x]], commonGenes)[commonGenes,])
+	
+	# Fix dimension names
+	colnames(cdList) <- paste0('h0v', colnames(cdList))
+	cdList <- cbind(gene_symbol=rownames(cdList), cdList)
+	    
+	# Save
+	write.table(cdList, file=outfile, sep='\t', quote=FALSE, row.names=FALSE)
 }
 
 #######################################################

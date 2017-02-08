@@ -210,16 +210,8 @@ def runCharacteristicDirection(infile, outfile):
 	# Read infile
 	expressionDataframe = pd.read_table(infile).set_index('gene_symbol')
 
-	# Split column names
-	treatedColumnBool = [x.split('.')[0] != 'h0' for x in expressionDataframe.columns]
-	controlColumnBool = [not x for x in treatedColumnBool]
-
-	# Get treated dataframe
-	treatedExpressionDataframe = expressionDataframe.loc[:, treatedColumnBool]
-	controlExpressionDataframe = expressionDataframe.loc[:, controlColumnBool]
-
 	# Run function
-	r.run_characteristic_direction(com.convert_to_r_dataframe(treatedExpressionDataframe), com.convert_to_r_dataframe(controlExpressionDataframe), outfile)
+	r.run_characteristic_direction(com.convert_to_r_dataframe(expressionDataframe), outfile)
 
 ##################################################
 ##################################################
