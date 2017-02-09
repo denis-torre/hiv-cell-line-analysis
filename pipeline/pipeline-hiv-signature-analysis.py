@@ -20,7 +20,9 @@ import pandas.rpy.common as com
 ##### 2. Custom modules #####
 # Pipeline running
 sys.path.append('/Users/denis/Documents/Projects/scripts')
-import Support as S 
+sys.path.append('pipeline/scripts')
+import Support as S
+import PipelineHivSignatureAnalysis as P
 
 #############################################
 ########## 2. General Setup
@@ -200,8 +202,7 @@ def removeBatchEffects(infile, outfile):
 
 @follows(mkdir('f4-differential_expression.dir'))
 
-@transform(['f2-normalized_expression_data.dir/podocyte_cell_line-vst.txt',
-		    'f3-adjusted_expression_data.dir/podocyte_cell_line-vst_corrected.txt'],
+@transform(removeBatchEffects,
 		    regex(r'.*/(.*).txt'),
 		    r'f4-differential_expression.dir/\1-differential_expression.txt')
 
@@ -212,6 +213,166 @@ def runCharacteristicDirection(infile, outfile):
 
 	# Run function
 	r.run_characteristic_direction(com.convert_to_r_dataframe(expressionDataframe), outfile)
+
+#######################################################
+#######################################################
+########## S5. Enrichment Analysis
+#######################################################
+#######################################################
+
+#############################################
+########## 1. Geneset Submission
+#############################################
+
+@follows(mkdir('f5-geneset_enrichment.dir'))
+
+@transform(runCharacteristicDirection,
+	   	   regex(r'.*/(.*).txt'),
+	   	   r'f5-geneset_enrichment.dir/\1_geneset_ids.txt')
+
+def submitGenesets(infile, outfile):
+
+	# Read infile
+	cdDataframe = pd.read_table(infile).set_index('gene_symbol')
+
+	# Set number of genes
+	nGenes = 500
+
+	# Get genesets
+	genesets = {}
+	genesets['upregulated'] = {x: cdDataframe[x].sort_values(ascending=False).index[:nGenes].tolist() for x in cdDataframe.columns}
+	genesets['downregulated'] = {x: cdDataframe[x].sort_values(ascending=True).index[:nGenes].tolist() for x in cdDataframe.columns}
+
+	# Define empty dict
+	listIds = {x:{} for x in genesets.keys()}
+
+	# Loop through directions
+	for direction in genesets.keys():
+	    
+	    # Loop through timepoints
+	    for timepoint in genesets[direction].keys():
+	        
+	        # Get geneset
+	        geneset = genesets[direction][timepoint]
+	        
+	        # Submit genelist and get ID
+	        listIds[direction][timepoint] = P.addGeneLists(geneset)
+
+	# Create list dataframe
+	genelistDataframe = pd.DataFrame()
+
+	# Convert to dataframe
+	for direction in listIds.keys():
+	    
+	    # Convert
+	    genelistDataframeSubset = pd.DataFrame(listIds[direction]).T
+	    
+	    # Add label
+	    genelistDataframeSubset['direction'] = direction
+	    
+	    # Fix URL
+	    genelistDataframeSubset['URL'] = ['http://amp.pharm.mssm.edu/Enrichr/enrich?dataset='+x for x in genelistDataframeSubset['shortId']]
+	    
+	    # Append
+	    genelistDataframe = pd.concat([genelistDataframe, genelistDataframeSubset])
+		    
+		# Write file
+	genelistDataframe.to_csv(outfile, sep='\t', index=True, index_label='timepoint')	
+
+#############################################
+########## 2. Geneset Enrichment
+#############################################
+
+@transform(submitGenesets,
+		   suffix('ids.txt'),
+		   'enrichment.txt')
+
+def getGenesetEnrichment(infile, outfile):
+
+	# Read infile
+	genelistDataframe = pd.read_table(infile)
+
+	# Set geneset libraries
+	genesetLibraries = ['ChEA_2016', 'KEGG_2016', 'GO_Biological_Process_2015', 'GO_Cellular_Component_2015', 'GO_Molecular_Function_2015', 'VirusMINT']
+
+	# Define empty dataframe
+	enrichmentDataframe = pd.DataFrame()
+
+	# Loop through directions
+	for direction in set(genelistDataframe['direction']):
+	    
+	    # Loop through timepoints
+	    for timepoint in set(genelistDataframe['timepoint']):
+	        
+	        # Get geneset
+	        listId = genelistDataframe.loc[(genelistDataframe['direction']==direction) & (genelistDataframe['timepoint']==timepoint), 'userListId'].values[0]
+
+	        # Loop through
+	        for genesetLibrary in genesetLibraries:
+
+	        	# Get data
+				enrichmentResultsDataframe = P.getEnrichmentResults(listId, gene_set_library=genesetLibrary)
+				enrichmentResultsDataframe['direction'] = direction
+				enrichmentResultsDataframe['timepoint'] = timepoint
+				enrichmentResultsDataframe['gene_set_library'] = genesetLibrary
+				enrichmentDataframe = pd.concat([enrichmentDataframe, enrichmentResultsDataframe])
+
+	# Save outfile
+	enrichmentDataframe.to_csv(outfile, sep='\t', index=False)
+
+#######################################################
+#######################################################
+########## S5. L1000CDS2 Analysis
+#######################################################
+#######################################################
+
+#############################################
+########## 1. Geneset Submission
+#############################################
+
+@follows(mkdir('f6-l1000cds2_analysis.dir'))
+
+@transform(runCharacteristicDirection,
+	   	   regex(r'.*/(.*).txt'),
+	   	   r'f6-l1000cds2_analysis.dir/\1_l1000cds2_results.txt')
+
+def runL1000cds2Analysis(infile, outfile):
+
+	# Read infile
+	cdDataframe = pd.read_table(infile).set_index('gene_symbol')
+
+	# Get results
+	analysisResultDict = {x:P.runL1000CDS2(cdDataframe, x) for x in cdDataframe.columns}
+
+	# Get link dictionary
+	resultLinkDict = {x: {'share_id': analysisResultDict[x]['shareId']} for x in analysisResultDict.keys()}
+
+	# Convert to dataframe
+	resultLinkDataframe = pd.DataFrame(resultLinkDict).T
+
+	# Add URL
+	resultLinkDataframe['URL'] = ['http://amp.pharm.mssm.edu/L1000CDS2/#/result/'+x for x in resultLinkDataframe['share_id']]
+
+	# Get perturbation dataframe
+	perturbationDataframe = pd.DataFrame()
+
+	# Loop through timepoints
+	for timepoint in analysisResultDict.keys():
+	    
+	    # Get result
+	    timepointPerturbationDataframe = pd.DataFrame(analysisResultDict[timepoint]['topMeta']).drop('overlap', axis=1)
+	    
+	    # Add timepoint
+	    timepointPerturbationDataframe['timepoint'] = timepoint
+	    
+	    # Append
+	    perturbationDataframe = pd.concat([perturbationDataframe, timepointPerturbationDataframe])
+	    
+	# Save data
+	linkOutfile = outfile.replace('results', 'links')
+	resultLinkDataframe.to_csv(linkOutfile, sep='\t', index=True, index_label='timepoint')
+	perturbationDataframe.to_csv(outfile, sep='\t', index=False)
+
 
 ##################################################
 ##################################################

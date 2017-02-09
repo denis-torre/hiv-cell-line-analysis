@@ -141,7 +141,7 @@ run_characteristic_direction <- function(expressionDataframe, outfile) {
 	}, simplify=FALSE)
 	    
 	# Get common genes
-	commonGenes <- Reduce(intersect, sapply(timepointData, function(x) rownames(x)))[1:500]
+	commonGenes <- Reduce(intersect, sapply(timepointData, function(x) rownames(x)))
 	    
 	# Filter data
 	timepointData <- sapply(timepointData, function(x) x[commonGenes,])
@@ -150,7 +150,7 @@ run_characteristic_direction <- function(expressionDataframe, outfile) {
 	cdList <- sapply(timepoints[-1], function(x) chdir(timepointData[['h0']], timepointData[[x]], commonGenes)[commonGenes,])
 	
 	# Fix dimension names
-	colnames(cdList) <- paste0('h0v', colnames(cdList))
+	cdList <- cdList[,c('h6', 'h12', 'h24', 'h48')]
 	cdList <- cbind(gene_symbol=rownames(cdList), cdList)
 	    
 	# Save
