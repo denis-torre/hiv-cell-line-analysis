@@ -2,3 +2,5 @@
 *.sublime-workspace
 *.dir
 *.sqlite
+*-checkpoint.ipynb
+*.pyc

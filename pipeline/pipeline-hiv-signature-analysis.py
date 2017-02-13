@@ -14,6 +14,7 @@
 from ruffus import *
 import sys, rpy2
 import pandas as pd
+import numpy as np
 import rpy2.robjects as robjects
 import pandas.rpy.common as com
 
@@ -322,7 +323,7 @@ def getGenesetEnrichment(infile, outfile):
 
 #######################################################
 #######################################################
-########## S5. L1000CDS2 Analysis
+########## S6. L1000CDS2 Analysis
 #######################################################
 #######################################################
 
@@ -342,16 +343,13 @@ def runL1000cds2Analysis(infile, outfile):
 	cdDataframe = pd.read_table(infile).set_index('gene_symbol')
 
 	# Get results
-	analysisResultDict = {x:P.runL1000CDS2(cdDataframe, x) for x in cdDataframe.columns}
+	analysisResultDict = {timepoint:{aggravate: P.runL1000CDS2(cdDataframe, timepoint, aggravate) for aggravate in [True, False]} for timepoint in cdDataframe.columns}
 
 	# Get link dictionary
-	resultLinkDict = {x: {'share_id': analysisResultDict[x]['shareId']} for x in analysisResultDict.keys()}
+	resultLinkDict = {timepoint:{aggravate:'http://amp.pharm.mssm.edu/L1000CDS2/#/result/'+analysisResultDict[timepoint][aggravate]['shareId'] for aggravate in analysisResultDict[timepoint].keys()} for timepoint in analysisResultDict.keys()}
 
 	# Convert to dataframe
-	resultLinkDataframe = pd.DataFrame(resultLinkDict).T
-
-	# Add URL
-	resultLinkDataframe['URL'] = ['http://amp.pharm.mssm.edu/L1000CDS2/#/result/'+x for x in resultLinkDataframe['share_id']]
+	resultLinkDataframe = pd.DataFrame(resultLinkDict).T.rename(columns={True:'mimic', False:'reverse'})
 
 	# Get perturbation dataframe
 	perturbationDataframe = pd.DataFrame()
@@ -359,19 +357,107 @@ def runL1000cds2Analysis(infile, outfile):
 	# Loop through timepoints
 	for timepoint in analysisResultDict.keys():
 	    
-	    # Get result
-	    timepointPerturbationDataframe = pd.DataFrame(analysisResultDict[timepoint]['topMeta']).drop('overlap', axis=1)
-	    
-	    # Add timepoint
-	    timepointPerturbationDataframe['timepoint'] = timepoint
-	    
-	    # Append
-	    perturbationDataframe = pd.concat([perturbationDataframe, timepointPerturbationDataframe])
-	    
+	    # Loop through aggravate
+	    for aggravate in analysisResultDict[timepoint].keys():
+
+	        # Get result
+	        timepointPerturbationDataframe = pd.DataFrame(analysisResultDict[timepoint][aggravate]['topMeta']).drop('overlap', axis=1)
+
+	        # Add labels
+	        timepointPerturbationDataframe['timepoint'] = timepoint
+	        timepointPerturbationDataframe['aggravate'] = aggravate
+
+	        # Append
+	        perturbationDataframe = pd.concat([perturbationDataframe, timepointPerturbationDataframe])
+
+    # Add label
+	perturbationDataframe['perturbation'] = [str(pert) if pert != '-666' else str(pubchem_id) for pert, pubchem_id in perturbationDataframe[['pert_desc','pubchem_id']].as_matrix()]
+
 	# Save data
 	linkOutfile = outfile.replace('results', 'links')
 	resultLinkDataframe.to_csv(linkOutfile, sep='\t', index=True, index_label='timepoint')
 	perturbationDataframe.to_csv(outfile, sep='\t', index=False)
+
+#######################################################
+#######################################################
+########## S7. Clustergrammer Visualization
+#######################################################
+#######################################################
+
+#############################################
+########## 1. Prepare matrix
+#############################################
+
+@follows(mkdir('f7-clustergrammer.dir'))
+
+@transform([removeBatchEffects,
+			'f2-normalized_expression_data.dir/podocyte_cell_line-vst.txt'],
+		   regex(r'.*/(.*).txt'),
+		   r'f7-clustergrammer.dir/\1-clustergrammer_input.txt')
+
+def createClustergrammerInputMatrix(infile, outfile):
+
+	# Read infile
+	expressionDataframe = pd.read_table(infile).set_index('gene_symbol')
+
+	# Rank by variance
+	rankedGenes = expressionDataframe.apply(np.var, 1).sort_values(ascending=False).index.tolist()
+
+	# Get number of genes
+	nGenes = 1000
+
+	# Define empty list
+	dataList = []
+
+	# Get annotation
+	dataList.append(['']+['Sample: '+x for x in expressionDataframe.columns])
+	dataList.append(['']+['Timepoint: '+x.split('.')[0].replace('h','')+'h' for x in expressionDataframe.columns])
+	dataList.append(['']+['Batch: '+x.split('.')[1] for x in expressionDataframe.columns])
+
+	# Add genes
+	for geneSymbol in rankedGenes[:nGenes]:
+	    dataList.append(['Gene Symbol: '+geneSymbol]+[str(round(x, ndigits=2)) for x in expressionDataframe.loc[geneSymbol,:]])
+
+	# Create string
+	outfileString = '\n'.join(['\t'.join(x) for x in dataList])
+
+	# Write
+	with open(outfile, 'w') as openfile:
+	    openfile.write(outfileString)
+
+#############################################
+########## 2. Upload matrix
+#############################################
+
+@transform([createClustergrammerInputMatrix,
+			'f2-normalized_expression_data.dir/podocyte_cell_line-vst.txt'],
+		   suffix('input.txt'),
+		   'links.txt')
+
+def uploadClustergrammerMatrix(infile, outfile):
+
+	# Get Upload URL
+	uploadUrl = 'http://amp.pharm.mssm.edu/clustergrammer/matrix_upload/'
+
+	# Loop through
+	r = requests.post(uploadUrl, files={'file': open(infile, 'rb')})
+
+	# Get link
+	link = r.text
+
+	# Write
+	with open(outfile, 'w') as openfile:
+		openfile.write(link)
+
+#######################################################
+#######################################################
+########## S. 
+#######################################################
+#######################################################
+
+#############################################
+########## . 
+#############################################
 
 
 ##################################################
