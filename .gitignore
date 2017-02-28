@@ -4,3 +4,4 @@
 *.sqlite
 *-checkpoint.ipynb
 *.pyc
+*.icloud
